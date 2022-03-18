@@ -92,9 +92,9 @@ class ConnectionWindow:
             self.entry1.delete(0, END)
             self.entry2.delete(0, END)
             self.entry3.delete(0, END)
-            self.entry1.insert(0, self.x)
-            self.entry2.insert(0, self.y)
-            self.entry3.insert(0, self.z)
+            self.entry1.insert(0, self.ip)
+            self.entry2.insert(0, self.port)
+            self.entry3.insert(0, self.client_id)
             messagebox.showerror("Error", """Connection failed, try again. IP Adress, Socket Port and Client ID have been reset to default.
                                   Make sure you are logged into your TWS.""")
 
