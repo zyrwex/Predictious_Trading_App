@@ -9,27 +9,25 @@ from tkinter import messagebox
 from tkinter import ttk
 from ibapi.client import EClient
 from ibapi.wrapper import EWrapper
-from display_data import TradingApp
+from ibapi.execution import *
 import pandas as pd
 
 
 class TradingApp(EWrapper, EClient):
         def __init__(self):
             EClient.__init__(self,self)
-            self.pos_df = pd.DataFrame(columns=['Account', 'Symbol', 'SecType',
+            self.pos_df = pd.DataFrame(columns=['Symbol', 'SecType',
                                              'Currency', 'Position', 'Avg cost'])
-            self.acc_summary_df = pd.DataFrame(columns=['ReqId', 'Account', 'Tag', 'Value', 'Currency'])
-            self.pnl_summary_df = pd.DataFrame(columns=['ReqId', 'DailyPnL', 'UnrealizedPnL', 'RealizedPnL'])
-            self.order_df = pd.DataFrame(columns=['PermId', 'ClientId', 'OrderId',
-                                              'Account', 'Symbol', 'SecType',
+            self.acc_summary_df = pd.DataFrame(columns=['Account', 'Value', 'Currency'])
+            self.pnl_summary_df = pd.DataFrame(columns=['DailyPnL', 'UnrealizedPnL', 'RealizedPnL'])
+            self.order_df = pd.DataFrame(columns=['Account', 'Symbol', 'SecType',
                                               'Exchange', 'Action', 'OrderType',
                                               'TotalQty', 'CashQty', 'LmtPrice',
                                               'AuxPrice', 'Status'])
-            self.execution_df = pd.DataFrame(columns=['ReqId', 'PermId', 'Symbol',
-                                                  'SecType', 'Currency', 'ExecId',
-                                                  'Time', 'Account', 'Exchange',
-                                                  'Side', 'Shares', 'Price',
-                                                  'AvPrice', 'cumQty', 'OrderRef'])
+            self.execution_df = pd.DataFrame(columns=['Symbol', 'SecType', 'Currency',
+                                                      'Time', 'Exchange',
+                                                      'Side', 'Shares', 'Price',
+                                                      'AvPrice'])
 
         def nextValidId(self, orderId):
             super().nextValidId(orderId)
@@ -37,17 +35,17 @@ class TradingApp(EWrapper, EClient):
 
         def accountSummary(self, reqId, account, tag, value, currency):
             super().accountSummary(reqId, account, tag, value, currency)
-            dictionary = {"ReqId":reqId, "Account": account, "Tag": tag, "Value": value, "Currency": currency}
+            dictionary = {"Account": account, "Value": value, "Currency": currency}
             self.acc_summary_df = self.acc_summary_df.append(dictionary, ignore_index=True)
 
         def pnl(self, reqId, dailyPnL, unrealizedPnL, realizedPnL):
             super().pnl(reqId, dailyPnL, unrealizedPnL, realizedPnL)
-            dictionary = {"ReqId":reqId, "DailyPnL": dailyPnL, "UnrealizedPnL": unrealizedPnL, "RealizedPnL": realizedPnL}
+            dictionary = {"DailyPnL": dailyPnL, "UnrealizedPnL": unrealizedPnL, "RealizedPnL": realizedPnL}
             self.pnl_summary_df = self.pnl_summary_df.append(dictionary, ignore_index=True)
 
         def position(self, account, contract, position, avgCost):
             super().position(account, contract, position, avgCost)
-            dictionary = {"Account":account, "Symbol": contract.symbol, "SecType": contract.secType,
+            dictionary = {"Symbol": contract.symbol, "SecType": contract.secType,
                           "Currency": contract.currency, "Position": position, "Avg cost": avgCost}
             if self.pos_df["Symbol"].str.contains(contract.symbol).any():
                 self.pos_df.loc[self.pos_df["Symbol"]==contract.symbol,"Position"] = position
@@ -57,8 +55,7 @@ class TradingApp(EWrapper, EClient):
 
         def openOrder(self, orderId, contract, order, orderState):
             super().openOrder(orderId, contract, order, orderState)
-            dictionary = {"PermId":order.permId, "ClientId": order.clientId, "OrderId": orderId,
-                          "Account": order.account, "Symbol": contract.symbol, "SecType": contract.secType,
+            dictionary = {"Account": order.account, "Symbol": contract.symbol, "SecType": contract.secType,
                           "Exchange": contract.exchange, "Action": order.action, "OrderType": order.orderType,
                           "TotalQty": order.totalQuantity, "CashQty": order.cashQty,
                           "LmtPrice": order.lmtPrice, "AuxPrice": order.auxPrice, "Status": orderState.status}
@@ -71,6 +68,7 @@ class TradingApp(EWrapper, EClient):
                           "Side":execution.side, "Shares":execution.shares, "Price":execution.price,
                           "AvPrice":execution.avgPrice, "cumQty":execution.cumQty, "OrderRef":execution.orderRef}
             self.execution_df = self.execution_df.append(dictionary, ignore_index=True)
+
 
 app = TradingApp()  # Initialize the Trading Object
 
@@ -241,51 +239,95 @@ class MainWindow:
         self.master = master
         # Define the window
         master.geometry("1440x800")
+        master.resizable(False, False)
         # To make sure the window comes to the front when app is opened
         master.attributes('-topmost', True)
         master.update()
         # To make sure the window doesn't stay permanently in the front
         master.attributes('-topmost', False)
 
-        # Configure the rows
-        master.rowconfigure(0, weight=1)
-        master.rowconfigure(1, weight=4)
-        master.rowconfigure(2, weight=2)
-        master.rowconfigure(3, weight=2)
-
-        # Configure the columns
-        master.columnconfigure(0, weight=4)
-        master.columnconfigure(1, weight=1)
-        master.columnconfigure(2, weight=4)
-
         # Request PnL
         app.reqPnL(5, "DU3635578", "")
         time.sleep(0.5)
         pnl_summary_df = app.pnl_summary_df
+        pnl_summary_df["DailyPnL"] = pnl_summary_df["DailyPnL"].round(decimals = 2)
+        pnl_summary_df["UnrealizedPnL"] = pnl_summary_df["UnrealizedPnL"].round(decimals = 2)
+        pnl_summary_df["RealizedPnL"] = pnl_summary_df["RealizedPnL"].round(decimals = 2)
 
         # Profit & loss labelframe
-        self.pnl = Text(master)
-        self.pnl.insert(INSERT, pnl_summary_df)
-        self.pnl.config(state = 'disabled')
-        self.pnl.grid(row=0, column=0)
+        lf = LabelFrame(master,text="Account Summary", labelanchor="n")
+        lf.place(x= 0, y=0)
+
+        # Insert Profit & loss data in labelframe
+        self.acc_sum = Text(lf, height = 2, width=130, font=("Helvetica", 18))
+        self.acc_sum.insert(INSERT, pnl_summary_df.to_string(index=False))
+        self.acc_sum.config(state = 'disabled')
+        self.acc_sum.grid()
+
 
         # Request positions
         app.reqPositions()
         time.sleep(0.5)
         pos_df = app.pos_df
+        pos_df['Avg cost'] = pos_df['Avg cost'].round(decimals=2)
+
+        lz = LabelFrame(master, text="Positions", labelanchor="n")
+        lz.place(x=820 , y=570)
 
         # Create treeview
-        self.tree1 = ttk.Treeview(self.master)
-        self.tree1.grid(row=3, column=2)
+        self.tree1 = ttk.Treeview(lz)
+        self.tree1.grid()
         self.tree1['columns'] = pos_df.columns.values.tolist()
 
         # Add data to treeview
         for i in pos_df.columns.values.tolist():
-                self.tree1.column(i, width=100)
+                self.tree1.column(i, width=90)
                 self.tree1.heading(i, text=i)
 
         for index, row in pos_df.iterrows():
                 self.tree1.insert("", 'end', text=index, values=list(row))
+        self.tree1.column("#0", width = 0, stretch = "no") # to get rid of the index column
+
+        app.reqExecutions(21, ExecutionFilter())
+        execution_df = app.execution_df
+        time.sleep(1)
+
+        exec_labelframe = LabelFrame(master, text="Trades", labelanchor="n")
+        exec_labelframe.place(x=0 , y=570)
+
+        self.tree2 = ttk.Treeview(exec_labelframe)
+        self.tree2.grid()
+        self.tree2['columns'] = execution_df.columns.values.tolist()
+
+        # Add data to treeview
+        for i in execution_df.columns.values.tolist():
+                self.tree2.column(i, width=90)
+                self.tree2.heading(i, text=i)
+        for index, row in execution_df.iterrows():
+                self.tree2.insert("", 'end', text=index, values=list(row))
+        self.tree2.column("#0", width = 0, stretch = "no") # to get rid of the index column
+
+        app.reqOpenOrders()
+        app.reqAllOpenOrders() # returns all open orders irrespective of client ID
+        time.sleep(1)
+        order_df = app.order_df
+
+        order_labelframe = LabelFrame(master, text="Orders", labelanchor="n")
+        order_labelframe.place(x=0 , y=340)
+
+        self.tree3 = ttk.Treeview(order_labelframe)
+        self.tree3.grid()
+        self.tree3['columns'] = order_df.columns.values.tolist()
+
+        # Add data to treeview
+        for i in order_df.columns.values.tolist():
+                self.tree3.column(i, width=90)
+                self.tree3.heading(i, text=i)
+        for index, row in execution_df.iterrows():
+                self.tree3.insert("", 'end', text=index, values=list(row))
+        self.tree3.column("#0", width = 0, stretch = "no") # to get rid of the index column
+
+
 
 
 root = Tk()
