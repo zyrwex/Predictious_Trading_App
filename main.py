@@ -16,18 +16,19 @@ import pandas as pd
 class TradingApp(EWrapper, EClient):
         def __init__(self):
             EClient.__init__(self,self)
+            self.contract_id = 0
             self.pos_df = pd.DataFrame(columns=['Symbol', 'SecType',
                                              'Currency', 'Position', 'Avg cost'])
             self.acc_summary_df = pd.DataFrame(columns=['Account', 'Value', 'Currency'])
             self.pnl_summary_df = pd.DataFrame(columns=['DailyPnL', 'UnrealizedPnL', 'RealizedPnL'])
-            self.order_df = pd.DataFrame(columns=['Account', 'Symbol', 'SecType',
+            self.order_df = pd.DataFrame(columns=['Symbol', 'SecType',
                                               'Exchange', 'Action', 'OrderType',
-                                              'TotalQty', 'CashQty', 'LmtPrice',
-                                              'AuxPrice', 'Status'])
+                                              'TotalQty', 'LmtPrice'])
             self.execution_df = pd.DataFrame(columns=['Symbol', 'SecType', 'Currency',
                                                       'Time', 'Exchange',
                                                       'Side', 'Shares', 'Price',
                                                       'AvPrice'])
+            self.pnl_single_df = pd.DataFrame(columns=['UnrealizedPnL'])
 
         def nextValidId(self, orderId):
             super().nextValidId(orderId)
@@ -55,19 +56,27 @@ class TradingApp(EWrapper, EClient):
 
         def openOrder(self, orderId, contract, order, orderState):
             super().openOrder(orderId, contract, order, orderState)
-            dictionary = {"Account": order.account, "Symbol": contract.symbol, "SecType": contract.secType,
+            dictionary = {"Symbol": contract.symbol, "SecType": contract.secType,
                           "Exchange": contract.exchange, "Action": order.action, "OrderType": order.orderType,
-                          "TotalQty": order.totalQuantity, "CashQty": order.cashQty,
+                          "TotalQty": order.totalQuantity,
                           "LmtPrice": order.lmtPrice, "AuxPrice": order.auxPrice, "Status": orderState.status}
             self.order_df = self.order_df.append(dictionary, ignore_index=True)
 
         def execDetails(self, reqId, contract, execution):
             super().execDetails(reqId, contract, execution)
-            dictionary = {"ReqId":reqId, "PermId":execution.permId, "Symbol":contract.symbol, "SecType":contract.secType, "Currency":contract.currency,
-                          "ExecId":execution.execId, "Time":execution.time, "Account":execution.acctNumber, "Exchange":execution.exchange,
+            dictionary = {"Symbol":contract.symbol, "SecType":contract.secType, "Currency":contract.currency,
+                        "Time":execution.time, "Exchange":execution.exchange,
                           "Side":execution.side, "Shares":execution.shares, "Price":execution.price,
-                          "AvPrice":execution.avgPrice, "cumQty":execution.cumQty, "OrderRef":execution.orderRef}
+                          "AvPrice":execution.avgPrice}
             self.execution_df = self.execution_df.append(dictionary, ignore_index=True)
+
+        def pnlSingle(self, reqId, pos, dailyPnL, unrealizedPnL, realizedPnL, value):
+            super().pnlSingle(reqId, pos, dailyPnL, unrealizedPnL, realizedPnL, value)
+            dictionary = {"UnrealizedPnL": unrealizedPnL}
+            self.pnl_single_df = self.pnl_single_df.append(dictionary, ignore_index=True)
+
+        def contractDetails(self, reqId, contractDetails):
+            self.contract_id = int(str(contractDetails.contract).split(",")[0])
 
 
 app = TradingApp()  # Initialize the Trading Object
@@ -272,7 +281,7 @@ class MainWindow:
         pos_df['Avg cost'] = pos_df['Avg cost'].round(decimals=2)
 
         lz = LabelFrame(master, text="Positions", labelanchor="n")
-        lz.place(x=820 , y=570)
+        lz.place(x=1050 , y=570)
 
         # Create treeview
         self.tree1 = ttk.Treeview(lz)
@@ -281,7 +290,7 @@ class MainWindow:
 
         # Add data to treeview
         for i in pos_df.columns.values.tolist():
-                self.tree1.column(i, width=90)
+                self.tree1.column(i, width=60)
                 self.tree1.heading(i, text=i)
 
         for index, row in pos_df.iterrows():
@@ -289,11 +298,12 @@ class MainWindow:
         self.tree1.column("#0", width = 0, stretch = "no") # to get rid of the index column
 
         app.reqExecutions(21, ExecutionFilter())
-        execution_df = app.execution_df
         time.sleep(1)
+        execution_df = app.execution_df
+
 
         exec_labelframe = LabelFrame(master, text="Trades", labelanchor="n")
-        exec_labelframe.place(x=0 , y=570)
+        exec_labelframe.place(x=425 , y=570)
 
         self.tree2 = ttk.Treeview(exec_labelframe)
         self.tree2.grid()
@@ -301,19 +311,20 @@ class MainWindow:
 
         # Add data to treeview
         for i in execution_df.columns.values.tolist():
-                self.tree2.column(i, width=90)
+                self.tree2.column(i, width=60)
                 self.tree2.heading(i, text=i)
+        self.tree2.column(3, width=140)
         for index, row in execution_df.iterrows():
                 self.tree2.insert("", 'end', text=index, values=list(row))
         self.tree2.column("#0", width = 0, stretch = "no") # to get rid of the index column
 
-        app.reqOpenOrders()
-        app.reqAllOpenOrders() # returns all open orders irrespective of client ID
+        app.reqAllOpenOrders()
         time.sleep(1)
         order_df = app.order_df
 
-        order_labelframe = LabelFrame(master, text="Orders", labelanchor="n")
-        order_labelframe.place(x=0 , y=340)
+
+        order_labelframe = LabelFrame(master, text="Open Orders", labelanchor="n")
+        order_labelframe.place(x=0 , y=570)
 
         self.tree3 = ttk.Treeview(order_labelframe)
         self.tree3.grid()
@@ -321,9 +332,9 @@ class MainWindow:
 
         # Add data to treeview
         for i in order_df.columns.values.tolist():
-                self.tree3.column(i, width=90)
+                self.tree3.column(i, width=60)
                 self.tree3.heading(i, text=i)
-        for index, row in execution_df.iterrows():
+        for index, row in order_df.iterrows():
                 self.tree3.insert("", 'end', text=index, values=list(row))
         self.tree3.column("#0", width = 0, stretch = "no") # to get rid of the index column
 
