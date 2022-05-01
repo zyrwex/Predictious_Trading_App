@@ -22,9 +22,9 @@ class TradingApp(EWrapper, EClient):
                                              'Currency', 'Position', 'Avg cost'])
             self.acc_summary_df = pd.DataFrame(columns=['Tag', 'Value'])
             self.order_df = pd.DataFrame(columns=['Symbol', 'SecType',
-                                              'Action', 'OrderType',
+                                              'Action', 'OrderType', "PermId",
                                               'TotalQty', 'LmtPrice'])
-            self.execution_df = pd.DataFrame(columns=['Symbol', 'SecType', 'Currency',
+            self.execution_df = pd.DataFrame(columns=['Symbol', 'SecType', 'Currency',  "ExecId",
                                                       'Time',
                                                       'Side', 'Shares',
                                                       'AvPrice'])
@@ -54,17 +54,24 @@ class TradingApp(EWrapper, EClient):
             super().openOrder(orderId, contract, order, orderState)
             dictionary = {"Symbol": contract.symbol, "SecType": contract.secType,
                         "Action": order.action, "OrderType": order.orderType,
-                          "TotalQty": order.totalQuantity,
+                          "TotalQty": order.totalQuantity, "PermId":order.permId,
                           "LmtPrice": order.lmtPrice, "AuxPrice": order.auxPrice, "Status": orderState.status}
-            self.order_df = self.order_df.append(dictionary, ignore_index=True)
+            if self.order_df["PermId"].astype(str).str.contains(str(order.permId)).any():
+                self.order_df.loc[self.order_df["PermId"]==order.permId,"Status"] = orderState.status
+                self.order_df.loc[self.order_df["PermId"]==order.permId,"AuxPrice"] = order.auxPrice
+            else:
+                self.order_df = self.order_df.append(dictionary, ignore_index=True)
 
         def execDetails(self, reqId, contract, execution):
             super().execDetails(reqId, contract, execution)
             dictionary = {"Symbol":contract.symbol, "SecType":contract.secType, "Currency":contract.currency,
-                        "Time":execution.time,
+                        "Time":execution.time,  "ExecId":execution.execId,
                           "Side":execution.side, "Shares":execution.shares,
                           "AvPrice":execution.avgPrice}
-            self.execution_df = self.execution_df.append(dictionary, ignore_index=True)
+            if self.execution_df['ExecId'].str.contains(execution.execId).any():
+                pass
+            else:
+                self.execution_df = self.execution_df.append(dictionary, ignore_index=True)
 
         def pnlSingle(self, reqId, pos, dailyPnL, unrealizedPnL, realizedPnL, value):
             super().pnlSingle(reqId, pos, dailyPnL, unrealizedPnL, realizedPnL, value)
@@ -242,6 +249,7 @@ class ConnectionWindow:
 class MainWindow:
     """This is the main window where charts, trades, positions etc. will be shown."""
     def __init__(self, master):
+
         self.master = master
         # Define the window
         master.geometry("1440x800")
@@ -251,8 +259,15 @@ class MainWindow:
         master.update()
         # To make sure the window doesn't stay permanently in the front
         master.attributes('-topmost', False)
+        root.after(100, self.display_tables)
 
+
+
+    def display_tables(self):
         app.reqAccountSummary(99, "All", "$LEDGER:ALL")
+        app.reqExecutions(21, ExecutionFilter())
+        app.reqPositions()
+        app.reqAllOpenOrders()
         time.sleep(1)
 
         acc_summ_usd_df = app.acc_summary_df
@@ -266,7 +281,7 @@ class MainWindow:
 
 
         # USD account summary labelframe
-        acc_summ_usd_labelframe = LabelFrame(master,text="Account Summary in USD", labelanchor="n")
+        acc_summ_usd_labelframe = LabelFrame(self.master,text="Account Summary in USD", labelanchor="n")
         acc_summ_usd_labelframe.place(x= 0, y=0)
 
         # USD account summary treeview
@@ -294,7 +309,7 @@ class MainWindow:
         acc_summ_euro_df = acc_summ_euro_df.transpose()
 
         # EURO account summary labelframe
-        acc_summ_euro_labelframe = LabelFrame(master,text="Account Summary in EURO", labelanchor="n")
+        acc_summ_euro_labelframe = LabelFrame(self.master,text="Account Summary in EURO", labelanchor="n")
         acc_summ_euro_labelframe.place(x= 720, y=0)
 
         # EURO account summary treeview
@@ -310,12 +325,11 @@ class MainWindow:
                 self.acc_summ_euro_tree.insert("", 'end', text=index, values=list(row))
         self.acc_summ_euro_tree.column("#0", width = 0, stretch = "no") # to get rid of the index column
 
-        app.reqExecutions(21, ExecutionFilter())
-        time.sleep(1)
+
         exec_df = app.execution_df
 
         # Execution labelframe
-        exec_labelframe = LabelFrame(master, text="Trades", labelanchor="n")
+        exec_labelframe = LabelFrame(self.master, text="Trades", labelanchor="n")
         exec_labelframe.place(x=365 , y=570)
 
         # Exectution treeview
@@ -332,12 +346,10 @@ class MainWindow:
                 self.exec_tree.insert("", 'end', text=index, values=list(row))
         self.exec_tree.column("#0", width = 0, stretch = "no") # to get rid of the index column
 
-        app.reqAllOpenOrders()
-        time.sleep(1)
         order_df = app.order_df
 
         # order labelframe
-        order_labelframe = LabelFrame(master, text="Open Orders", labelanchor="n")
+        order_labelframe = LabelFrame(self.master, text="Open Orders", labelanchor="n")
         order_labelframe.place(x=0 , y=570)
 
         # order treeview
@@ -353,9 +365,10 @@ class MainWindow:
                 self.order_tree.insert("", 'end', text=index, values=list(row))
         self.order_tree.column("#0", width = 0, stretch = "no") # to get rid of the index column
 
-        app.reqPositions()
-        time.sleep(0.5)
+
         pos_df = app.pos_df
+        symbol_lst = []
+        secType_lst = []
         symbol_lst = pos_df['Symbol'].values.tolist()
         secType_lst = pos_df['SecType'].values.tolist()
         contract = Contract()
@@ -366,13 +379,12 @@ class MainWindow:
             app.reqContractDetails(100+i, contract)
             time.sleep(1)
             app.reqPnLSingle(i+1000, "DU3635578", "", app.contract_id) #update the account ID
-            time.sleep(1.5)
+            time.sleep(1)
         daily_pnl_variable = app.pnl_single_df
-
         pos_df['Avg cost'] = pos_df['Avg cost'].round(decimals=2)
 
         # Positions labelframe
-        positions_labelframe = LabelFrame(master, text="Positions", labelanchor="n")
+        positions_labelframe = LabelFrame(self.master, text="Positions", labelanchor="n")
         positions_labelframe.place(x=870 , y=570)
 
         # Create positions treeview
@@ -401,7 +413,7 @@ class MainWindow:
         self.positions_tree.column("#0", width = 0, stretch = "no") # to get rid of the index column
 
         # Cash positions labelframe
-        cash_positions_labelframe = LabelFrame(master, text="Cash Positions", labelanchor="n")
+        cash_positions_labelframe = LabelFrame(self.master, text="Cash Positions", labelanchor="n")
         cash_positions_labelframe.place(x=870 , y=695)
 
         # Cash positions treeview
@@ -425,7 +437,12 @@ class MainWindow:
                 self.cash_position_tree.insert("", 'end', text=index, values=list(row))
         self.cash_position_tree.column("#0", width = 0, stretch = "no") # to get rid of the index column
 
+        root.after(100, self.display_tables)
 
-root = Tk()
-gui = ConnectionWindow(root)
-root.mainloop()
+
+
+
+if __name__ == '__main__':
+    root = Tk()
+    gui = ConnectionWindow(root)
+    root.mainloop()
